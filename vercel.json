@@ -1,9 +1,15 @@
 {
   "version": 2,
   "builds": [
+    { "src": "index.html", "use": "@vercel/static" },
     {
       "src": "api/proxy.py",
       "use": "@vercel/python"
     }
+  ],
+  "routes": [
+    { "src": "/api/proxy", "dest": "/api/proxy.py" },
+    { "handle": "filesystem" },
+    { "src": "/(.*)", "dest": "/index.html" }
   ]
 }
