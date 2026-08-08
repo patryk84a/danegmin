@@ -266,8 +266,10 @@
         }
 
         // Uruchamiamy główną funkcję po załadowaniu strony
-        // Inicjalizujemy listę, a następnie od razu renderujemy wykresy dla domyślnej gminy.
-        document.addEventListener('DOMContentLoaded', initializeSelector);
+        document.addEventListener('DOMContentLoaded', () => {
+            initializeSelector();
+            renderCharts(); // Wywołujemy renderowanie dla domyślnej gminy zaraz po załadowaniu strony
+        });
         
     </script> 
 </body>
