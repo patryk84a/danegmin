@@ -107,7 +107,7 @@
 
         const BDL_CONFIG = {
             BASE_URL: "https://bdl.stat.gov.pl/api/v1/data/by-variable",
-            YEAR_RANGE: "2015-2025",
+            YEAR_RANGE: "2010-2025",
             VARIABLES: {
                 "ludnosc": {"id": "72305", "label": "Liczba ludności"},
                 "dochody_ogolem": {"id": "76037", "label": "Dochody ogółem"},
@@ -148,37 +148,33 @@
             document.getElementById('teryt-code').textContent = BDL_CONFIG.CURRENT_UNIT_ID;
             
             try {
-                // Czyścimy poprzednie wykresy
-                chartsContainer.innerHTML = '';
+                // Przygotowujemy jedno, zbiorcze zapytanie do naszego proxy
+                const params = new URLSearchParams();
+                params.append('unit-id', BDL_CONFIG.CURRENT_UNIT_ID);
+                params.append('year', BDL_CONFIG.YEAR_RANGE);
+                for (const variable of Object.values(BDL_CONFIG.VARIABLES)) {
+                    params.append('var-id', variable.id);
+                }
+                const proxyUrl = `/api/proxy?${params.toString()}`;
 
-                // Zmieniamy pętlę na sekwencyjną (for...of), aby nie przeciążać serwera.
+                console.log("Wysyłanie jednego, zbiorczego zapytania...");
+                const response = await fetch(proxyUrl);
+                if (!response.ok) {
+                    throw new Error(`Błąd serwera proxy. Status: ${response.status}`);
+                }
+                const data = await response.json();
+                chartsContainer.innerHTML = ''; // Czyścimy wskaźnik ładowania
+
+                // Przetwarzamy otrzymane dane i rysujemy wykresy
                 for (const [key, variable] of Object.entries(BDL_CONFIG.VARIABLES)) {
-                    const params = new URLSearchParams({
-                        "unit-level": 6,
-                        // Używamy aktualnie wybranego ID gminy
-                        "unit-id": BDL_CONFIG.CURRENT_UNIT_ID,
-                        "year": BDL_CONFIG.YEAR_RANGE,
-                        "format": "json",
-                        "page-size": 100
-                    });
-                    const targetUrl = `${BDL_CONFIG.BASE_URL}/${variable.id}?${params.toString()}`;
-                    
-                    // Używamy naszego własnego, prywatnego proxy serwowanego przez Vercel.
-                    // Jest to stabilne i profesjonalne rozwiązanie.
-                    const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
+                    const bdlData = data.results[variable.id];
+                    if (!bdlData) continue;
 
-                    console.log(`Pobieranie: ${variable.label}`);
-                    const response = await fetch(proxyUrl);
-                    if (!response.ok) {
-                        // Jeśli jedno zapytanie się nie powiedzie, wyświetl błąd i kontynuuj
-                        console.error(`Błąd proxy dla "${variable.label}". Status: ${response.status}`);
-                        chartsContainer.innerHTML += `<p style="color: orange;">Nie udało się załadować danych dla: ${variable.label}</p>`;
-                        continue;
-                    }
-                    
-                    // Nasze proxy zwraca dane bezpośrednio, bez opakowania.
-                    const bdlData = await response.json();
-                    const series = summarizeBdlResults(bdlData);
+                    let series = summarizeBdlResults(bdlData);
+
+                    // ROZWIĄZANIE: Filtrujemy dane, aby pokazać tylko lata od 2010.
+                    const startYear = parseInt(BDL_CONFIG.YEAR_RANGE.split('-')[0], 10);
+                    series = series.filter(item => item.year >= startYear);
 
                     if (series.length === 0) {
                         continue; // Pomiń rysowanie wykresu, jeśli nie ma danych
