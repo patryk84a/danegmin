@@ -148,9 +148,11 @@
             document.getElementById('teryt-code').textContent = BDL_CONFIG.CURRENT_UNIT_ID;
             
             try {
-                const promises = Object.entries(BDL_CONFIG.VARIABLES).map(async ([key, variable]) => {
-                // Iterujemy po każdej zmiennej i pobieramy dla niej dane bezpośrednio z BDL
-                // for (const [key, variable] of Object.entries(BDL_CONFIG.VARIABLES)) {
+                // Czyścimy poprzednie wykresy
+                chartsContainer.innerHTML = '';
+
+                // Zmieniamy pętlę na sekwencyjną (for...of), aby nie przeciążać serwera.
+                for (const [key, variable] of Object.entries(BDL_CONFIG.VARIABLES)) {
                     const params = new URLSearchParams({
                         "unit-level": 6,
                         // Używamy aktualnie wybranego ID gminy
@@ -168,23 +170,18 @@
                     console.log(`Pobieranie: ${variable.label}`);
                     const response = await fetch(proxyUrl);
                     if (!response.ok) {
-                        throw new Error(`Błąd naszego proxy dla "${variable.label}"`);
+                        // Jeśli jedno zapytanie się nie powiedzie, wyświetl błąd i kontynuuj
+                        console.error(`Błąd proxy dla "${variable.label}". Status: ${response.status}`);
+                        chartsContainer.innerHTML += `<p style="color: orange;">Nie udało się załadować danych dla: ${variable.label}</p>`;
+                        continue;
                     }
                     
                     // Nasze proxy zwraca dane bezpośrednio, bez opakowania.
                     const bdlData = await response.json();
                     const series = summarizeBdlResults(bdlData);
 
-                    return { variable, series };
-                });
-
-                const results = await Promise.all(promises);
-                chartsContainer.innerHTML = ''; // Czyścimy wskaźnik ładowania
-
-                results.forEach(result => {
-                    const { variable, series } = result;
                     if (series.length === 0) {
-                        return; // Pomiń rysowanie wykresu, jeśli nie ma danych
+                        continue; // Pomiń rysowanie wykresu, jeśli nie ma danych
                     }
 
                     const card = document.createElement('div');
@@ -228,7 +225,7 @@
                             }
                         }
                     });
-                });
+                }
 
             } catch (error) {
                 chartsContainer.innerHTML = `<p style="color: red; text-align: center;">Błąd: ${error.message}</p>`;
