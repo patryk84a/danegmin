@@ -141,12 +141,19 @@
             return summary;
         }
 
+        // Zmienna do przechowywania aktywnych instancji wykresów
+        let activeCharts = [];
+
         // Główna funkcja, która wczytuje dane i tworzy wykresy
         async function renderCharts() {
             const chartsContainer = document.getElementById('charts-container');
             chartsContainer.innerHTML = '<p>Ładowanie danych...</p>'; // Wskaźnik ładowania
             document.getElementById('teryt-code').textContent = BDL_CONFIG.CURRENT_UNIT_ID;
             
+            // KROK 1: Niszczymy wszystkie poprzednie instancje wykresów
+            activeCharts.forEach(chart => chart.destroy());
+            activeCharts = []; // Czyścimy tablicę
+
             try {
                 chartsContainer.innerHTML = ''; // Czyścimy wskaźnik ładowania
 
@@ -200,7 +207,7 @@
                         const values = series.map(item => item.value);
                         const color = generateColor(variable.label);
 
-                        new Chart(canvas, {
+                        const newChart = new Chart(canvas, {
                             type: 'line',
                             data: {
                                 labels: labels,
@@ -225,6 +232,9 @@
                                 }
                             }
                         });
+
+                        // KROK 2: Dodajemy nowo utworzony wykres do naszej listy
+                        activeCharts.push(newChart);
                     }
                 }
             } catch (error) {
@@ -256,8 +266,9 @@
         }
 
         // Uruchamiamy główną funkcję po załadowaniu strony
+        // Inicjalizujemy listę, a następnie od razu renderujemy wykresy dla domyślnej gminy.
         document.addEventListener('DOMContentLoaded', initializeSelector);
-        document.addEventListener('DOMContentLoaded', renderCharts);
+        
     </script> 
 </body>
 </html>
