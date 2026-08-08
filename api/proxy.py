@@ -1,6 +1,7 @@
 from http.server import BaseHTTPRequestHandler
 import urllib.request
 import urllib.parse
+import ssl
 import json
 
 class handler(BaseHTTPRequestHandler):
@@ -19,9 +20,15 @@ class handler(BaseHTTPRequestHandler):
 
         try:
             # Wykonujemy zapytanie do docelowego API GUS
+            # Dodajemy kontekst SSL, aby uniknąć błędów weryfikacji certyfikatu
+            ctx = ssl.create_default_context()
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
             headers = {"User-Agent": "Mozilla/5.0", "Accept": "application/json"}
             req = urllib.request.Request(target_url, headers=headers)
-            with urllib.request.urlopen(req, timeout=20) as response:
+            
+            with urllib.request.urlopen(req, context=ctx, timeout=20) as response:
                 content = response.read()
 
                 # Odsyłamy odpowiedź z powrotem do przeglądarki
