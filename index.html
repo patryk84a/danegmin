@@ -161,20 +161,18 @@
                     });
                     const targetUrl = `${BDL_CONFIG.BASE_URL}/${variable.id}?${params.toString()}`;
                     
-                    // Aby strona działała na GitHub Pages, musimy ponownie użyć publicznego proxy CORS.
-                    // UWAGA: Publiczne proxy bywają zawodne. Jeśli strona przestanie działać,
-                    // to prawdopodobnie wina tego serwera.
-                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+                    // Używamy naszego własnego, prywatnego proxy serwowanego przez Vercel.
+                    // Jest to stabilne i profesjonalne rozwiązanie.
+                    const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
 
                     console.log(`Pobieranie: ${variable.label}`);
                     const response = await fetch(proxyUrl);
                     if (!response.ok) {
-                        throw new Error(`Błąd publicznego proxy dla "${variable.label}"`);
+                        throw new Error(`Błąd naszego proxy dla "${variable.label}"`);
                     }
                     
-                    // Publiczne proxy `allorigins` opakowuje odpowiedź, więc musimy ją rozpakować.
-                    const wrapperData = await response.json();
-                    const bdlData = JSON.parse(wrapperData.contents);
+                    // Nasze proxy zwraca dane bezpośrednio, bez opakowania.
+                    const bdlData = await response.json();
                     const series = summarizeBdlResults(bdlData);
 
                     return { variable, series };
