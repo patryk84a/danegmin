@@ -150,11 +150,10 @@
             try {
                 // Przygotowujemy jedno, zbiorcze zapytanie do naszego proxy
                 const params = new URLSearchParams();
+                const varIds = Object.values(BDL_CONFIG.VARIABLES).map(v => v.id).join(',');
                 params.append('unit-id', BDL_CONFIG.CURRENT_UNIT_ID);
                 params.append('year', BDL_CONFIG.YEAR_RANGE);
-                for (const variable of Object.values(BDL_CONFIG.VARIABLES)) {
-                    params.append('var-id', variable.id);
-                }
+                params.append('var-ids', varIds);
                 const proxyUrl = `/api/proxy?${params.toString()}`;
 
                 console.log("Wysyłanie jednego, zbiorczego zapytania...");
