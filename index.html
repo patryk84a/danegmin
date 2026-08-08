@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dane dla Gminy Janikowo</title>
+    <!-- Dołączamy bibliotekę Chart.js do rysowania wykresów -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: #f4f7f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+        }
+        header {
+            text-align: center;
+            margin-bottom: 40px;
+            border-bottom: 1px solid #dfe6e9;
+            padding-bottom: 20px;
+        }
+        h1 {
+            color: #2d3436;
+        }
+        .selector-container {
+            margin: 20px 0;
+        }
+        #gmina-selector {
+            padding: 8px 12px;
+            font-size: 16px;
+            border-radius: 5px;
+            border: 1px solid #dfe6e9;
+        }
+        main {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+        }
+        .chart-card {
+            background-color: #fff;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+            padding: 20px;
+            transition: transform 0.2s ease-in-out;
+        }
+        .chart-card:hover {
+            transform: translateY(-5px);
+        }
+        footer {
+            text-align: center;
+            margin-top: 40px;
+            padding-top: 20px;
+            font-size: 0.9em;
+            color: #636e72;
+            border-top: 1px solid #dfe6e9;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Dane statystyczne dla gmin powiatu inowrocławskiego</h1>
+        <div class="selector-container">
+            <label for="gmina-selector">Wybierz gminę: </label>
+            <select id="gmina-selector"></select>
+        </div>
+        <p>TERYT: <span id="teryt-code">ładowanie...</span></p>
+    </header>
+
+    <main id="charts-container">
+        <!-- Wykresy zostaną dynamicznie wstawione tutaj przez JavaScript -->
+    </main>
+
+    <footer>
+        <p>Stworzone z wykorzystaniem danych z Banku Danych Lokalnych GUS.</p>
+    </footer>
+
+    <script>
+        // Funkcja do generowania losowego, ale ładnego koloru
+        function generateColor(seed) {
+            let hash = 0;
+            for (let i = 0; i < seed.length; i++) {
+                hash = seed.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            let color = '#';
+            for (let i = 0; i < 3; i++) {
+                let value = (hash >> (i * 8)) & 0xFF;
+                color += ('00' + value.toString(16)).substr(-2);
+            }
+            return color;
+        }
+
+        // Konfiguracja
+        const MUNICIPALITIES = {
+            "0407053": "Janikowo",
+            "0407011": "Inowrocław (miasto)",
+            "0407022": "Inowrocław (gmina wiejska)",
+            "0407032": "Dąbrowa Biskupia",
+            "0407043": "Gniewkowo",
+            "0407063": "Kruszwica",
+            "0407073": "Pakość",
+            "0407082": "Rojewo",
+            "0407092": "Złotniki Kujawskie"
+        };
+
+        const BDL_CONFIG = {
+            BASE_URL: "https://bdl.stat.gov.pl/api/v1/data/by-variable",
+            YEAR_RANGE: "2015-2025",
+            VARIABLES: {
+                "ludnosc": {"id": "72305", "label": "Liczba ludności"},
+                "dochody_ogolem": {"id": "76037", "label": "Dochody ogółem"},
+                "wydatki_ogolem": {"id": "76477", "label": "Wydatki ogółem"},
+                "saldo_migracji": {"id": "1365234", "label": "Saldo migracji"},
+                "urodzenia_zywe": {"id": "59", "label": "Urodzenia żywe"},
+                "zgony": {"id": "65", "label": "Zgony"},
+                "wyd_oswiata": {"id": "76646", "label": "Wydatki na oświatę"},
+                "wyd_transport": {"id": "76541", "label": "Wydatki na transport"},
+                "wydatki_inwest": {"id": "76450", "label": "Wydatki inwestycyjne"},
+                "srodki_ue": {"id": "199169", "label": "Środki UE"},
+            },
+            CURRENT_UNIT_ID: "0407053" // Domyślnie startujemy z Janikowa
+        };
+
+        // Funkcja do przetwarzania odpowiedzi z API BDL
+        function summarizeBdlResults(data) {
+            const results = data.results || [];
+            const summary = [];
+            if (results.length === 0) return summary;
+
+            if ("values" in results[0]) {
+                for (const item of results[0].values) {
+                    summary.push({ year: item.year, value: item.val });
+                }
+            } else {
+                for (const item of results) {
+                    summary.push({ year: item.year, value: item.value });
+                }
+            }
+            return summary;
+        }
+
+        // Główna funkcja, która wczytuje dane i tworzy wykresy
+        async function renderCharts() {
+            const chartsContainer = document.getElementById('charts-container');
+            chartsContainer.innerHTML = '<p>Ładowanie danych...</p>'; // Wskaźnik ładowania
+            document.getElementById('teryt-code').textContent = BDL_CONFIG.CURRENT_UNIT_ID;
+            
+            try {
+                const promises = Object.entries(BDL_CONFIG.VARIABLES).map(async ([key, variable]) => {
+                // Iterujemy po każdej zmiennej i pobieramy dla niej dane bezpośrednio z BDL
+                // for (const [key, variable] of Object.entries(BDL_CONFIG.VARIABLES)) {
+                    const params = new URLSearchParams({
+                        "unit-level": 6,
+                        // Używamy aktualnie wybranego ID gminy
+                        "unit-id": BDL_CONFIG.CURRENT_UNIT_ID,
+                        "year": BDL_CONFIG.YEAR_RANGE,
+                        "format": "json",
+                        "page-size": 100
+                    });
+                    const targetUrl = `${BDL_CONFIG.BASE_URL}/${variable.id}?${params.toString()}`;
+                    
+                    // Aby strona działała na GitHub Pages, musimy ponownie użyć publicznego proxy CORS.
+                    // UWAGA: Publiczne proxy bywają zawodne. Jeśli strona przestanie działać,
+                    // to prawdopodobnie wina tego serwera.
+                    const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+
+                    console.log(`Pobieranie: ${variable.label}`);
+                    const response = await fetch(proxyUrl);
+                    if (!response.ok) {
+                        throw new Error(`Błąd publicznego proxy dla "${variable.label}"`);
+                    }
+                    
+                    // Publiczne proxy `allorigins` opakowuje odpowiedź, więc musimy ją rozpakować.
+                    const wrapperData = await response.json();
+                    const bdlData = JSON.parse(wrapperData.contents);
+                    const series = summarizeBdlResults(bdlData);
+
+                    return { variable, series };
+                });
+
+                const results = await Promise.all(promises);
+                chartsContainer.innerHTML = ''; // Czyścimy wskaźnik ładowania
+
+                results.forEach(result => {
+                    const { variable, series } = result;
+                    if (series.length === 0) {
+                        return; // Pomiń rysowanie wykresu, jeśli nie ma danych
+                    }
+
+                    const card = document.createElement('div');
+                    card.className = 'chart-card';
+                    const canvas = document.createElement('canvas');
+                    card.appendChild(canvas);
+                    chartsContainer.appendChild(card);
+
+                    // Przygotowujemy dane dla biblioteki Chart.js
+                    const labels = series.map(item => item.year);
+                    const values = series.map(item => item.value);
+                    const color = generateColor(variable.label);
+
+                    // Tworzymy nowy wykres
+                    new Chart(canvas, {
+                        type: 'line', // Typ wykresu: liniowy
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: variable.label,
+                                data: values,
+                                borderColor: color,
+                                backgroundColor: color + '33', // Ten sam kolor, ale z przezroczystością
+                                fill: true,
+                                tension: 0.1 // Wygładzenie linii
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: {
+                                    display: true,
+                                    text: variable.label,
+                                    font: {
+                                        size: 16
+                                    }
+                                },
+                                legend: {
+                                    display: false // Ukrywamy legendę, bo tytuł jest wystarczający
+                                }
+                            }
+                        }
+                    });
+                });
+
+            } catch (error) {
+                chartsContainer.innerHTML = `<p style="color: red; text-align: center;">Błąd: ${error.message}</p>`;
+                console.error("Błąd podczas renderowania wykresów:", error);
+            }
+        }
+
+        // Funkcja do inicjalizacji listy wyboru gmin
+        function initializeSelector() {
+            const selector = document.getElementById('gmina-selector');
+            
+            // Wypełniamy listę opcjami
+            for (const [teryt, name] of Object.entries(MUNICIPALITIES)) {
+                const option = document.createElement('option');
+                option.value = teryt;
+                option.textContent = name;
+                if (teryt === BDL_CONFIG.CURRENT_UNIT_ID) {
+                    option.selected = true;
+                }
+                selector.appendChild(option);
+            }
+
+            // Dodajemy nasłuchiwanie na zmianę wyboru
+            selector.addEventListener('change', (event) => {
+                BDL_CONFIG.CURRENT_UNIT_ID = event.target.value;
+                renderCharts(); // Ponownie renderujemy wykresy dla nowej gminy
+            });
+        }
+
+        // Uruchamiamy główną funkcję po załadowaniu strony
+        document.addEventListener('DOMContentLoaded', initializeSelector);
+        document.addEventListener('DOMContentLoaded', renderCharts);
+    </script> 
+</body>
+</html>
