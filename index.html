@@ -125,17 +125,22 @@
 
         // Funkcja do przetwarzania odpowiedzi z API BDL
         function summarizeBdlResults(data) {
-            const results = data.results || [];
+            // W nowej metodzie API, każda zmienna jest osobnym obiektem w tablicy `results`
+            const allResults = data.results || [];
             const summary = [];
-            if (results.length === 0) return summary;
+            if (allResults.length === 0) return summary;
 
-            if ("values" in results[0]) {
-                for (const item of results[0].values) {
-                    summary.push({ year: item.year, value: item.val });
-                }
-            } else {
-                for (const item of results) {
-                    summary.push({ year: item.year, value: item.value });
+            // Znajdujemy dane dla konkretnej zmiennej, którą chcemy narysować
+            // (Ta funkcja będzie teraz wywoływana dla każdej zmiennej osobno)
+            const variableId = this.variableId;
+            const variableData = allResults.find(res => res.variableId == variableId);
+
+            if (variableData && variableData.values) {
+                for (const item of variableData.values) {
+                    summary.push({
+                        year: parseInt(item.year, 10),
+                        value: item.val
+                    });
                 }
             }
             return summary;
@@ -145,10 +150,10 @@
         let activeCharts = [];
 
         // Główna funkcja, która wczytuje dane i tworzy wykresy
-        async function renderCharts() {
+        async function renderCharts(unitId) {
             const chartsContainer = document.getElementById('charts-container');
             chartsContainer.innerHTML = '<p>Ładowanie danych...</p>'; // Wskaźnik ładowania
-            document.getElementById('teryt-code').textContent = BDL_CONFIG.CURRENT_UNIT_ID;
+            document.getElementById('teryt-code').textContent = unitId;
             
             // KROK 1: Niszczymy wszystkie poprzednie instancje wykresów
             activeCharts.forEach(chart => chart.destroy());
@@ -157,85 +162,63 @@
             try {
                 chartsContainer.innerHTML = ''; // Czyścimy wskaźnik ładowania
 
-                // Wysyłamy zapytania w paczkach, aby nie przeciążać serwera, ale zachować szybkość
-                const CONCURRENCY_LIMIT = 4;
-                const variablesToFetch = Object.entries(BDL_CONFIG.VARIABLES);
-                
-                for (let i = 0; i < variablesToFetch.length; i += CONCURRENCY_LIMIT) {
-                    const batch = variablesToFetch.slice(i, i + CONCURRENCY_LIMIT);
-                    
-                    const promises = batch.map(async ([key, variable]) => {
-                        const params = new URLSearchParams({
-                            "unit-level": 6,
-                            "unit-id": BDL_CONFIG.CURRENT_UNIT_ID,
-                            "year": BDL_CONFIG.YEAR_RANGE,
-                            "format": "json",
-                            "page-size": 100
-                        });
-                        const targetUrl = `${BDL_CONFIG.BASE_URL}/${variable.id}?${params.toString()}`;
-                        const proxyUrl = `/api/proxy?url=${encodeURIComponent(targetUrl)}`;
-                        
-                        const response = await fetch(proxyUrl);
-                        if (!response.ok) {
-                            console.error(`Błąd proxy dla "${variable.label}". Status: ${response.status}`);
-                            return null; // Zwróć null w razie błędu, aby Promise.all nie przerywało działania
+                // Przygotowujemy jedno, zbiorcze zapytanie do naszego proxy
+                const params = new URLSearchParams();
+                const varIds = Object.values(BDL_CONFIG.VARIABLES).map(v => v.id).join(',');
+                params.append('unit-id', unitId);
+                params.append('year', BDL_CONFIG.YEAR_RANGE);
+                params.append('var-ids', varIds);
+                const proxyUrl = `/api/proxy?${params.toString()}`;
+
+                console.log("Wysyłanie jednego, zbiorczego zapytania...");
+                const response = await fetch(proxyUrl);
+                if (!response.ok) {
+                    throw new Error(`Błąd serwera proxy. Status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // Przetwarzamy otrzymane dane i rysujemy wykresy
+                for (const [key, variable] of Object.entries(BDL_CONFIG.VARIABLES)) {
+                    // Używamy .bind(), aby przekazać kontekst `variable.id` do funkcji przetwarzającej
+                    let series = summarizeBdlResults.bind({ variableId: variable.id })(data);
+                    const startYear = parseInt(BDL_CONFIG.YEAR_RANGE.split('-')[0], 10);
+                    series = series.filter(item => item.year >= startYear);
+
+                    if (series.length === 0) continue;
+
+                    const card = document.createElement('div');
+                    card.className = 'chart-card';
+                    const canvas = document.createElement('canvas');
+                    card.appendChild(canvas);
+                    chartsContainer.appendChild(card);
+
+                    const labels = series.map(item => item.year);
+                    const values = series.map(item => item.value);
+                    const color = generateColor(variable.label);
+
+                    const newChart = new Chart(canvas, {
+                        type: 'line',
+                        data: {
+                            labels: labels,
+                            datasets: [{
+                                label: variable.label,
+                                data: values,
+                                borderColor: color,
+                                backgroundColor: color + '33',
+                                fill: true,
+                                tension: 0.1
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            plugins: {
+                                title: { display: true, text: variable.label, font: { size: 16 } },
+                                legend: { display: false }
+                            }
                         }
-                        const bdlData = await response.json();
-                        return { variable, bdlData };
                     });
 
-                    const batchResults = await Promise.all(promises);
-
-                    for (const result of batchResults) {
-                        if (!result) continue; // Pomiń, jeśli wystąpił błąd
-
-                        const { variable, bdlData } = result;
-                        let series = summarizeBdlResults(bdlData);
-                        const startYear = parseInt(BDL_CONFIG.YEAR_RANGE.split('-')[0], 10);
-                        series = series.filter(item => item.year >= startYear);
-
-                        if (series.length === 0) continue;
-
-                        // Rysowanie wykresu (kod bez zmian)
-                        const card = document.createElement('div');
-                        card.className = 'chart-card';
-                        const canvas = document.createElement('canvas');
-                        card.appendChild(canvas);
-                        chartsContainer.appendChild(card);
-
-                        const labels = series.map(item => item.year);
-                        const values = series.map(item => item.value);
-                        const color = generateColor(variable.label);
-
-                        const newChart = new Chart(canvas, {
-                            type: 'line',
-                            data: {
-                                labels: labels,
-                                datasets: [{
-                                    label: variable.label,
-                                    data: values,
-                                    borderColor: color,
-                                    backgroundColor: color + '33',
-                                    fill: true,
-                                    tension: 0.1
-                                }]
-                            },
-                            options: {
-                                responsive: true,
-                                plugins: {
-                                    title: {
-                                        display: true,
-                                        text: variable.label,
-                                        font: { size: 16 }
-                                    },
-                                    legend: { display: false }
-                                }
-                            }
-                        });
-
-                        // KROK 2: Dodajemy nowo utworzony wykres do naszej listy
-                        activeCharts.push(newChart);
-                    }
+                    activeCharts.push(newChart);
                 }
             } catch (error) {
                 chartsContainer.innerHTML = `<p style="color: red; text-align: center;">Błąd: ${error.message}</p>`;
@@ -261,14 +244,14 @@
             // Dodajemy nasłuchiwanie na zmianę wyboru
             selector.addEventListener('change', (event) => {
                 BDL_CONFIG.CURRENT_UNIT_ID = event.target.value;
-                renderCharts(); // Ponownie renderujemy wykresy dla nowej gminy
+                renderCharts(BDL_CONFIG.CURRENT_UNIT_ID); // Przekazujemy nowe ID do funkcji
             });
         }
 
         // Uruchamiamy główną funkcję po załadowaniu strony
         document.addEventListener('DOMContentLoaded', () => {
             initializeSelector();
-            renderCharts(); // Wywołujemy renderowanie dla domyślnej gminy zaraz po załadowaniu strony
+            renderCharts(BDL_CONFIG.CURRENT_UNIT_ID); // Wywołujemy renderowanie dla domyślnej gminy
         });
         
     </script> 
